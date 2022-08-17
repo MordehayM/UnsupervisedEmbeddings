@@ -158,7 +158,7 @@ class CausalCNN(torch.nn.Module):
 
         layers = []  # List of causal convolution blocks
         dilation_size = 1  # Initial dilation size
-
+        #print(in_channels)
         for i in range(depth):
             in_channels_block = in_channels if i == 0 else channels
             layers += [CausalConvolutionBlock(
@@ -208,6 +208,8 @@ class CausalCNNEncoder(torch.nn.Module):
         self.network = torch.nn.Sequential(
             causal_cnn, reduce_size, squeeze, linear
         )
+        num_of_param = sum(p.numel() for p in self.network.parameters() if p.requires_grad)
+        print("Number of parameters that require grad in the model is: {num}".format(num=num_of_param))
 
     def forward(self, x):
         return self.network(x)

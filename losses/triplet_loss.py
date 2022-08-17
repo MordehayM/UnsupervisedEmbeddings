@@ -56,18 +56,16 @@ class TripletLoss(torch.nn.modules.loss._Loss):
         self.nb_random_samples = nb_random_samples
         self.negative_penalty = negative_penalty
 
-    def forward(self, batch, encoder, train, save_memory=False):
-        batch_size = batch.size(0)
-        train_size = train.size(0)
-        length = min(self.compared_length, train.size(2))
+    def forward(self, batch_spk_id, batch_mel_spec, neg_samples_index, encoder, train_torch_dataset, save_memory=False):
+        batch_size = batch_mel_spec.shape[0]
+        train_size = len(train_torch_dataset)
+        dataframe = train_torch_dataset.dataset_df
+        length = min(self.compared_length, train_torch_dataset[0]["mel_spec_db"].shape[1])
 
         # For each batch element, we pick nb_random_samples possible random
         # time series in the training set (choice of batches from where the
         # negative examples will be sampled)
-        samples = numpy.random.choice(
-            train_size, size=(self.nb_random_samples, batch_size)
-        )
-        samples = torch.LongTensor(samples)
+        
 
         # Choice of length of positive and negative samples
         length_pos_neg = numpy.random.randint(1, high=length + 1)
@@ -98,14 +96,14 @@ class TripletLoss(torch.nn.modules.loss._Loss):
         )
 
         representation = encoder(torch.cat(
-            [batch[
+            [batch_mel_spec[
                 j: j + 1, :,
                 beginning_batches[j]: beginning_batches[j] + random_length
             ] for j in range(batch_size)]
         ))  # Anchors representations
 
         positive_representation = encoder(torch.cat(
-            [batch[
+            [batch_mel_spec[
                 j: j + 1, :, end_positive[j] - length_pos_neg: end_positive[j]
             ] for j in range(batch_size)]
         ))  # Positive samples representations
@@ -117,6 +115,10 @@ class TripletLoss(torch.nn.modules.loss._Loss):
             representation.view(batch_size, 1, size_representation),
             positive_representation.view(batch_size, size_representation, 1)
         )))
+        """print(torch.bmm(
+            representation.view(batch_size, 1, size_representation),
+            positive_representation.view(batch_size, size_representation, 1)
+        ))"""
 
         # If required, backward through the first computed term of the loss and
         # free from the graph everything related to the positive sample
@@ -127,17 +129,29 @@ class TripletLoss(torch.nn.modules.loss._Loss):
             torch.cuda.empty_cache()
 
         multiplicative_ratio = self.negative_penalty / self.nb_random_samples
+        
+        #samples = numpy.empty(shape=(self.nb_random_samples, batch_size))
+        ## get negative samples with differnet speaker id.
+        """for j in range(batch_size):
+            indexes = dataframe.index[dataframe["spk_id"] != batch_spk_id[j]].to_list()
+            #indexes = dataframe[dataframe["spk_id"] != batch["spk_id"][j]].index.tolist()
+            samples[:, j] = numpy.random.choice(
+            indexes, size=self.nb_random_samples)
+        samples = torch.LongTensor(samples)"""
+        samples = neg_samples_index.T
+        #print(samples)
+        neg_loss = 0
         for i in range(self.nb_random_samples):
             # Negative loss: -logsigmoid of minus the dot product between
-            # anchor and negative representations
+            # anchor and negative representations                 
             negative_representation = encoder(
-                torch.cat([train[samples[i, j]: samples[i, j] + 1][
-                    :, :,
+                torch.stack([train_torch_dataset[samples[i, j].item()]["mel_spec_db"][
+                    :,
                     beginning_samples_neg[i, j]:
                     beginning_samples_neg[i, j] + length_pos_neg
-                ] for j in range(batch_size)])
+                ] for j in range(batch_size)]).to(batch_spk_id.device)
             )
-            loss += multiplicative_ratio * -torch.mean(
+            neg_loss += multiplicative_ratio * -torch.mean(
                 torch.nn.functional.logsigmoid(-torch.bmm(
                     representation.view(batch_size, 1, size_representation),
                     negative_representation.view(
@@ -153,7 +167,9 @@ class TripletLoss(torch.nn.modules.loss._Loss):
                 loss = 0
                 del negative_representation
                 torch.cuda.empty_cache()
-
+        print(f"The negative loss is: {neg_loss}")
+        print(f"The positive loss is: {loss}")
+        loss = loss + neg_loss
         return loss
 
 

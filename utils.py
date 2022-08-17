@@ -18,7 +18,9 @@
 
 import numpy
 import torch.utils.data
-
+from scipy.io import wavfile
+import librosa
+import pandas as pd
 
 class Dataset(torch.utils.data.Dataset):
     """
@@ -26,14 +28,48 @@ class Dataset(torch.utils.data.Dataset):
 
     @param dataset Numpy array representing the dataset.
     """
-    def __init__(self, dataset):
-        self.dataset = dataset
+    def __init__(self, path_csv, nb_random_sample=10):
+        self.dataset_df = pd.read_csv(path_csv)
+        self.fs = 16000
+        self.duraion = 5
+        self.nb_random_sample = nb_random_sample
 
     def __len__(self):
-        return numpy.shape(self.dataset)[0]
+        return self.dataset_df.shape[0]
 
     def __getitem__(self, index):
-        return self.dataset[index]
+        path = self.dataset_df.loc[index, "path_file"]
+        sample_rate, audio = wavfile.read(path)
+        audio = numpy.float64(audio)
+        audio = 2*(audio - audio.min()) / (audio.max() - audio.min()) - 1
+        audio = audio[:self.duraion * self.fs]
+        #print(audio.dtype)
+        mel_spec = librosa.feature.melspectrogram(y=audio, sr=sample_rate, n_fft=512, hop_length=256, win_length=512, n_mels=128)
+        mel_spec_db = librosa.power_to_db(mel_spec)
+        
+        spk_id = self.dataset_df.loc[index, "spk_id"]
+        
+        indexes_diff = self.dataset_df.index[self.dataset_df["spk_id"] != spk_id].to_list()
+        neg_samples_index = numpy.random.choice(indexes_diff, size=self.nb_random_sample)
+        ##another positive sample
+        indexes_same = self.dataset_df.index[self.dataset_df["spk_id"] == spk_id].to_list()
+        another_positive_index = numpy.random.choice(indexes_same, size=None)
+        """path = self.dataset_df.loc[another_positive_index, "path_file"]
+        sample_rate, audio = wavfile.read(path)
+        audio = numpy.float64(audio)
+        audio = 2*(audio - audio.min()) / (audio.max() - audio.min()) - 1
+        audio = audio[:self.duraion * self.fs]
+        #print(audio.dtype)
+        mel_spec_another_positive = librosa.feature.melspectrogram(y=audio, sr=sample_rate, n_fft=512, hop_length=256, win_length=512, n_mels=128)
+        mel_spec_db_another_positive = librosa.power_to_db(mel_spec_another_positive)"""
+        sample = {"spk_id": spk_id, "mel_spec_db": torch.tensor(mel_spec_db), "neg_samples_index": neg_samples_index,
+                  "another_positive_index":another_positive_index}
+        
+        return sample
+        
+        
+        
+        
 
 
 class LabelledDataset(torch.utils.data.Dataset):

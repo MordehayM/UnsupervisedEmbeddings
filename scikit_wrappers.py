@@ -27,6 +27,9 @@ import sklearn.model_selection
 import utils
 import losses
 import networks
+import joblib
+import matplotlib.pylab as plt
+from matplotlib.colors import ListedColormap
 
 
 class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
@@ -80,6 +83,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
         self.params = params
         self.in_channels = in_channels
         self.out_channels = out_channels
+        self.nb_random_samples = nb_random_samples
         self.loss = losses.triplet_loss.TripletLoss(
             compared_length, nb_random_samples, negative_penalty
         )
@@ -110,7 +114,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
                '$(prefix_file)_$(architecture)_encoder.pth').
         """
         self.save_encoder(prefix_file)
-        sklearn.externals.joblib.dump(
+        joblib.dump(
             self.classifier,
             prefix_file + '_' + self.architecture + '_classifier.pkl'
         )
@@ -142,7 +146,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
                and '$(prefix_file)_$(architecture)_encoder.pth').
         """
         self.load_encoder(prefix_file)
-        self.classifier = sklearn.externals.joblib.load(
+        self.classifier = joblib.load(
             prefix_file + '_' + self.architecture + '_classifier.pkl'
         )
 
@@ -154,6 +158,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
         @param features Computed features of the training set.
         @param y Training labels.
         """
+        print("Inside the fit_classifier function")
         nb_classes = numpy.shape(numpy.unique(y, return_counts=True)[1])[0]
         train_size = numpy.shape(features)[0]
         # To use a 1-NN classifier, no need for model selection, simply
@@ -192,7 +197,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
                     'decision_function_shape': ['ovr'],
                     'random_state': [None]
                 },
-                cv=5, iid=False, n_jobs=5
+                cv=5, n_jobs=5
             )
             if train_size <= 10000:
                 grid_search.fit(features, y)
@@ -207,7 +212,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
             self.classifier = grid_search.best_estimator_
             return self.classifier
 
-    def fit_encoder(self, X, y=None, save_memory=False, verbose=False):
+    def fit_encoder(self, path_csv, save_memory=False, verbose=False):
         """
         Trains the encoder unsupervisedly using the given training data.
 
@@ -221,21 +226,18 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
                the encoder training.
         """
         # Check if the given time series have unequal lengths
-        varying = bool(numpy.isnan(numpy.sum(X)))
-
-        train = torch.from_numpy(X)
-        if self.cuda:
-            train = train.cuda(self.gpu)
-
+        varying = False
+        
+        train_torch_dataset = utils.Dataset(path_csv, self.nb_random_samples)
+        train_generator = torch.utils.data.DataLoader(
+            train_torch_dataset, batch_size=self.batch_size, shuffle=True, num_workers=4
+        )
+        y = train_torch_dataset.dataset_df["spk_gender"]
+        
         if y is not None:
             nb_classes = numpy.shape(numpy.unique(y, return_counts=True)[1])[0]
-            train_size = numpy.shape(X)[0]
+            train_size = len(train_torch_dataset)
             ratio = train_size // nb_classes
-
-        train_torch_dataset = utils.Dataset(X)
-        train_generator = torch.utils.data.DataLoader(
-            train_torch_dataset, batch_size=self.batch_size, shuffle=True
-        )
 
         max_score = 0
         i = 0  # Number of performed optimization steps
@@ -245,39 +247,54 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
         # using cross-validation
         found_best = False
 
+
+        def _progress(self, batch_idx, num_batches, loss):
+            base = '[{}/{} ({:.0f}%)] The loss is {}'
+            return base.format(batch_idx, num_batches, 100.0 * batch_idx / num_batches, loss)
+        
+        num_batches = len(train_generator)
         # Encoder training
-        while i < self.nb_steps:
+        while epochs < self.nb_steps:
             if verbose:
                 print('Epoch: ', epochs + 1)
-            for batch in train_generator:
+            for batch_idx, batch in enumerate(train_generator):
                 if self.cuda:
-                    batch = batch.cuda(self.gpu)
+                    batch["spk_id"], batch["mel_spec_db"], batch["neg_samples_index"] = batch["spk_id"].cuda(self.gpu), batch["mel_spec_db"].cuda(self.gpu), batch["neg_samples_index"].cuda(self.gpu)
+                    #print(batch.device)
                 self.optimizer.zero_grad()
                 if not varying:
                     loss = self.loss(
-                        batch, self.encoder, train, save_memory=save_memory
+                        batch["spk_id"], batch["mel_spec_db"], batch["neg_samples_index"], self.encoder, train_torch_dataset, save_memory=save_memory
                     )
                 else:
                     loss = self.loss_varying(
-                        batch, self.encoder, train, save_memory=save_memory
+                        batch, self.encoder, train_torch_dataset, save_memory=save_memory
                     )
+                #print(loss)
                 loss.backward()
                 self.optimizer.step()
-                i += 1
-                if i >= self.nb_steps:
-                    break
+                #print(loss.device)
+                if batch_idx % 5 == 0:
+                    print(_progress(self, batch_idx, num_batches, loss))
+                #i += 1
+                #if i >= self.nb_steps:
+                #    break
             epochs += 1
+            if epochs >= self.nb_steps:
+                break
+            
             # Early stopping strategy
             if self.early_stopping is not None and y is not None and (
                 ratio >= 5 and train_size >= 50
             ):
                 # Computes the best regularization parameters
-                features = self.encode(X)
+                features = self.encode(path_csv)
                 self.classifier = self.fit_classifier(features, y)
                 # Cross validation score
                 score = numpy.mean(sklearn.model_selection.cross_val_score(
-                    self.classifier, features, y=y, cv=5, n_jobs=5
+                    self.classifier, features, y=y, cv=1, n_jobs=1
                 ))
+                print(f"The classifier score is: {score}")
                 count += 1
                 # If the model is better than the previous one, update
                 if score > max_score:
@@ -298,7 +315,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
 
         return self.encoder
 
-    def fit(self, X, y, save_memory=False, verbose=False):
+    def fit(self, path_csv, save_memory=False, verbose=False):
         """
         Trains sequentially the encoder unsupervisedly and then the classifier
         using the given labels over the learned features.
@@ -313,16 +330,18 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
         """
         # Fitting encoder
         self.encoder = self.fit_encoder(
-            X, y=y, save_memory=save_memory, verbose=verbose
+            path_csv, save_memory=save_memory, verbose=verbose
         )
 
         # SVM classifier training
-        features = self.encode(X)
+        features = self.encode(path_csv)
+        train_torch_dataset = utils.Dataset(path_csv)
+        y = train_torch_dataset.dataset_df["spk_gender"]
         self.classifier = self.fit_classifier(features, y)
 
         return self
 
-    def encode(self, X, batch_size=50):
+    def encode(self, path_csv, batch_size=2048):
         """
         Outputs the representations associated to the input by the encoder.
 
@@ -331,14 +350,15 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
                avoid out of memory errors when using CUDA. Ignored if the
                testing set contains time series of unequal lengths.
         """
+        print("Inside the encode function")
         # Check if the given time series have unequal lengths
-        varying = bool(numpy.isnan(numpy.sum(X)))
+        varying = False #bool(numpy.isnan(numpy.sum(X)))
 
-        test = utils.Dataset(X)
+        test = utils.Dataset(path_csv, self.nb_random_samples)
         test_generator = torch.utils.data.DataLoader(
-            test, batch_size=batch_size if not varying else 1
+            test, batch_size=batch_size if not varying else 1, num_workers=4
         )
-        features = numpy.zeros((numpy.shape(X)[0], self.out_channels))
+        features = numpy.zeros((len(test), self.out_channels))
         self.encoder = self.encoder.eval()
 
         count = 0
@@ -346,15 +366,15 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
             if not varying:
                 for batch in test_generator:
                     if self.cuda:
-                        batch = batch.cuda(self.gpu)
+                        batch["spk_id"], batch["mel_spec_db"] = batch["spk_id"].cuda(self.gpu), batch["mel_spec_db"].cuda(self.gpu)
                     features[
                         count * batch_size: (count + 1) * batch_size
-                    ] = self.encoder(batch).cpu()
+                    ] = self.encoder(batch["mel_spec_db"]).cpu()
                     count += 1
             else:
                 for batch in test_generator:
                     if self.cuda:
-                        batch = batch.cuda(self.gpu)
+                        batch["spk_id"], batch["mel_spec_db"] = batch["spk_id"].cuda(self.gpu), batch["mel_spec_db"].cuda(self.gpu)
                     length = batch.size(2) - torch.sum(
                         torch.isnan(batch[0, 0])
                     ).data.cpu().numpy()
@@ -430,6 +450,14 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
                testing set contains time series of unequal lengths.
         """
         features = self.encode(X, batch_size=batch_size)
+        fig, ax = plt.subplots()
+        classes = ['0', '1']
+        colors = ListedColormap(['tab:pink','b'])
+        sc = ax.scatter(features[:, 0], features[:, 1], c=y, cmap=colors)
+        plt.legend(handles=sc.legend_elements()[0], labels=classes)
+        ax.grid(True)
+        plt.savefig("/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/results.png")
+        
         return self.classifier.score(features, y)
 
 
