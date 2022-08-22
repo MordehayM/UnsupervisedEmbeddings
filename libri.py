@@ -32,7 +32,7 @@ import pandas as pd
 
 print(torch.cuda.device_count())
 
-def fit_hyperparameters(file, path_csv_train, cuda, gpu,
+def fit_hyperparameters(file, path_csv_train, cuda, gpu, save_path,
                         save_memory=False):
     """
     Creates a classifier from the given set of hyperparameters in the input
@@ -57,7 +57,12 @@ def fit_hyperparameters(file, path_csv_train, cuda, gpu,
     params['in_channels'] = train_torch_dataset[0]["mel_spec_db"].shape[0] #num of mel bands
     params['cuda'] = cuda
     params['gpu'] = gpu
-    classifier.set_params(**params)
+    load = False
+    params['save_path'] = save_path
+    
+    classifier.set_params(**params, load=load)
+    with open(save_path + 'hyperparameters.json', 'w') as fp:
+        json.dump(params, fp)
     return classifier.fit(
         path_csv_train, save_memory=save_memory, verbose=True
     )
@@ -69,7 +74,7 @@ def parse_arguments():
     )
 
 
-    parser.add_argument('--save_path', type=str, metavar='PATH', default="/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/another_run/",
+    parser.add_argument('--save_path', type=str, metavar='PATH', default="/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/another_run_20/",
                         help='path where the estimator is/should be saved')
     parser.add_argument('--cuda', type=bool, default=1,
                         help='activate to use CUDA')
@@ -103,20 +108,22 @@ if __name__ == '__main__':
     path_csv_test = "/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/Test.csv"
     if not args.load and not args.fit_classifier:
         classifier = fit_hyperparameters(
-            args.hyper, path_csv_train, args.cuda, args.gpu
+            args.hyper, path_csv_train, args.cuda, args.gpu, args.save_path
         )
     else:
         classifier = scikit_wrappers.CausalCNNEncoderClassifier()
         hf = open(
             os.path.join(
-                args.save_path, 'libri_hyperparameters.json'
+                args.save_path, 'hyperparameters.json'
             ), 'r'
         )
         hp_dict = json.load(hf)
         hf.close()
         hp_dict['cuda'] = args.cuda
         hp_dict['gpu'] = args.gpu
-        classifier.set_params(**hp_dict)
+        load = True
+        hp_dict['save_path'] = args.save_path
+        classifier.set_params(**hp_dict, load=load)
         classifier.load(os.path.join(args.save_path))
 
     if not args.load:

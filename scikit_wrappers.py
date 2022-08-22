@@ -30,6 +30,9 @@ import networks
 import joblib
 import matplotlib.pylab as plt
 from matplotlib.colors import ListedColormap
+import logging
+from pathlib import Path
+import sys
 
 
 class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
@@ -70,7 +73,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
     def __init__(self, compared_length, nb_random_samples, negative_penalty,
                  batch_size, nb_steps, lr, penalty, early_stopping,
                  encoder, params, in_channels, out_channels, cuda=False,
-                 gpu=0):
+                 gpu=0, save_path="", load=False):
         self.architecture = ''
         self.cuda = cuda
         self.gpu = gpu
@@ -84,6 +87,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.nb_random_samples = nb_random_samples
+        self.save_path = save_path
         self.loss = losses.triplet_loss.TripletLoss(
             compared_length, nb_random_samples, negative_penalty
         )
@@ -92,6 +96,29 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
         )
         self.classifier = sklearn.svm.SVC()
         self.optimizer = torch.optim.Adam(self.encoder.parameters(), lr=lr)
+        
+        ##logger
+        name = "UNsupervised_Spk_Gender"
+        self.logger = logging.getLogger(name)
+    # set log level
+        self.logger.setLevel(logging.INFO)
+        Path(self.save_path).mkdir(parents=True, exist_ok=True)
+        self.log_path = self.save_path + 'info.log'
+        # define file handler and set formatter
+        if load:
+            file_handler = logging.FileHandler(self.log_path, mode='a')
+        else:
+            file_handler = logging.FileHandler(self.log_path, mode='w')
+        formatter = logging.Formatter('%(asctime)s : %(levelname)s : %(name)s : %(message)s')
+        file_handler.setFormatter(formatter)
+        # add file handler to logger
+        self.logger.addHandler(file_handler)
+        consoleHandler = logging.StreamHandler(sys.stdout)
+        # consoleHandler.setLevel('INFO')
+        consoleHandler.setFormatter(formatter)
+        self.logger.addHandler(consoleHandler)
+        
+        return self.logger
 
     def save_encoder(self, prefix_file):
         """
@@ -158,7 +185,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
         @param features Computed features of the training set.
         @param y Training labels.
         """
-        print("Inside the fit_classifier function")
+        self.logger.info("Inside the fit_classifier function")
         nb_classes = numpy.shape(numpy.unique(y, return_counts=True)[1])[0]
         train_size = numpy.shape(features)[0]
         # To use a 1-NN classifier, no need for model selection, simply
@@ -188,7 +215,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
                     'gamma': ['scale'],
                     'coef0': [0],
                     'shrinking': [True],
-                    'probability': [False],
+                    'probability': [True],#False
                     'tol': [0.001],
                     'cache_size': [200],
                     'class_weight': [None],
@@ -256,7 +283,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
         # Encoder training
         while epochs < self.nb_steps:
             if verbose:
-                print('Epoch: ', epochs + 1)
+                self.logger.info(f"Epoch: {epochs + 1}")
             for batch_idx, batch in enumerate(train_generator):
                 if self.cuda:
                     batch["spk_id"], batch["mel_spec_db"], batch["neg_samples_index"] = batch["spk_id"].cuda(self.gpu), batch["mel_spec_db"].cuda(self.gpu), batch["neg_samples_index"].cuda(self.gpu)
@@ -275,7 +302,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
                 self.optimizer.step()
                 #print(loss.device)
                 if batch_idx % 5 == 0:
-                    print(_progress(self, batch_idx, num_batches, loss))
+                    self.logger.info((_progress(self, batch_idx, num_batches, loss)))
                 #i += 1
                 #if i >= self.nb_steps:
                 #    break
@@ -294,7 +321,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
                 score = numpy.mean(sklearn.model_selection.cross_val_score(
                     self.classifier, features, y=y, cv=1, n_jobs=1
                 ))
-                print(f"The classifier score is: {score}")
+                self.logger.info(f"The classifier score is: {score}")
                 count += 1
                 # If the model is better than the previous one, update
                 if score > max_score:
@@ -350,7 +377,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
                avoid out of memory errors when using CUDA. Ignored if the
                testing set contains time series of unequal lengths.
         """
-        print("Inside the encode function")
+        self.logger.info("Inside the encode function")
         # Check if the given time series have unequal lengths
         varying = False #bool(numpy.isnan(numpy.sum(X)))
 
@@ -450,13 +477,43 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
                testing set contains time series of unequal lengths.
         """
         features = self.encode(X, batch_size=batch_size)
+        est_y = self.classifier.predict(features)
+        
+        NMI  = sklearn.metrics.normalized_mutual_info_score(y, est_y)
+        self.logger.info(f"The NMI is: {NMI}. 0 = no mutual information and 1 = perfect correlation")
+        
+        ari = sklearn.metrics.adjusted_rand_score(y, est_y)
+        self.logger.info(f"The Adjusted Rand Index score is: {ari}. 0 for random labeling independently of the number of clusters and samples and exactly 1.0 when the clusterings are identical (up to a permutation")
+        
+        #print(numpy.unique(est_y))
+        features_female = features[y==0, :]
+        features_male = features[y==1, :]
+        
+        ##calc the cosine similarity betwee all within-class pairs (male, male) and (female, female) and all not-within class pairs (male, frmale)  
+        csmm = numpy.mean(sklearn.metrics.pairwise.cosine_similarity(features_male, features_male), axis=1)
+        csff = numpy.mean(sklearn.metrics.pairwise.cosine_similarity(features_female, features_female), axis=1)
+        csfm = numpy.mean(sklearn.metrics.pairwise.cosine_similarity(features_female, features_male), axis=1)
+        
+        ###hist of the similarity
+        fig, axs = plt.subplots(3)
+        fig.suptitle('Cosine Similarity')
+        axs[0].hist(csmm, bins="sqrt", density=True)
+        axs[0].set_title('male-male pairs')
+        axs[1].hist(csff, bins="sqrt", density=True)
+        axs[1].set_title('female-female pairs')
+        axs[2].hist(csfm, bins="sqrt", density=True)
+        axs[2].set_title('male-female pairs')
+        fig.tight_layout()
+        plt.savefig(self.save_path + "cosine similarity.png")
+        
+        ##דscatter of the vectors labeled by the gender
         fig, ax = plt.subplots()
-        classes = ['0', '1']
+        classes = ['female', 'male']
         colors = ListedColormap(['tab:pink','b'])
         sc = ax.scatter(features[:, 0], features[:, 1], c=y, cmap=colors)
         plt.legend(handles=sc.legend_elements()[0], labels=classes)
         ax.grid(True)
-        plt.savefig("/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/results.png")
+        plt.savefig(self.save_path + "scatter_visualization.png")
         
         return self.classifier.score(features, y)
 
@@ -500,7 +557,7 @@ class CausalCNNEncoderClassifier(TimeSeriesEncoderClassifier):
                  negative_penalty=1, batch_size=1, nb_steps=2000, lr=0.001,
                  penalty=1, early_stopping=None, channels=10, depth=1,
                  reduced_size=10, out_channels=10, kernel_size=4,
-                 in_channels=1, cuda=False, gpu=0):
+                 in_channels=1, cuda=False, gpu=0, save_path="", load=False):
         super(CausalCNNEncoderClassifier, self).__init__(
             compared_length, nb_random_samples, negative_penalty, batch_size,
             nb_steps, lr, penalty, early_stopping,
@@ -508,7 +565,7 @@ class CausalCNNEncoderClassifier(TimeSeriesEncoderClassifier):
                                   out_channels, kernel_size, cuda, gpu),
             self.__encoder_params(in_channels, channels, depth, reduced_size,
                                   out_channels, kernel_size),
-            in_channels, out_channels, cuda, gpu
+            in_channels, out_channels, cuda, gpu, save_path, load
         )
         self.architecture = 'CausalCNN'
         self.channels = channels
@@ -655,11 +712,11 @@ class CausalCNNEncoderClassifier(TimeSeriesEncoderClassifier):
     def set_params(self, compared_length, nb_random_samples, negative_penalty,
                    batch_size, nb_steps, lr, penalty, early_stopping,
                    channels, depth, reduced_size, out_channels, kernel_size,
-                   in_channels, cuda, gpu):
+                   in_channels, cuda, gpu, save_path, load):
         self.__init__(
             compared_length, nb_random_samples, negative_penalty, batch_size,
             nb_steps, lr, penalty, early_stopping, channels, depth,
-            reduced_size, out_channels, kernel_size, in_channels, cuda, gpu
+            reduced_size, out_channels, kernel_size, in_channels, cuda, gpu, save_path, load
         )
         return self
 

@@ -2,8 +2,8 @@
     "batch_size": 64,
     "channels": 40,
     "compared_length": null,
-    "depth": 10,
-    "nb_steps": 1,
+    "depth": 10 ,
+    "nb_steps": 5,
     "in_channels": 128,
     "kernel_size": 3,
     "penalty": null,
@@ -12,5 +12,5 @@
     "nb_random_samples": 10,
     "negative_penalty": 1,
     "out_channels": 2,
-    "reduced_size": 80
+    "reduced_size": 20
 }

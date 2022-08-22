@@ -63,7 +63,7 @@ class Dataset(torch.utils.data.Dataset):
         mel_spec_another_positive = librosa.feature.melspectrogram(y=audio, sr=sample_rate, n_fft=512, hop_length=256, win_length=512, n_mels=128)
         mel_spec_db_another_positive = librosa.power_to_db(mel_spec_another_positive)"""
         sample = {"spk_id": spk_id, "mel_spec_db": torch.tensor(mel_spec_db), "neg_samples_index": neg_samples_index,
-                  "another_positive_index":another_positive_index}
+                  "another_positive_index": another_positive_index}
         
         return sample
         
