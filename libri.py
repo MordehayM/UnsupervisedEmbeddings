@@ -29,6 +29,7 @@ import argparse
 import scikit_wrappers
 import utils
 import pandas as pd
+import matplotlib.pylab as plt
 
 print(torch.cuda.device_count())
 
@@ -106,7 +107,9 @@ if __name__ == '__main__':
 
     path_csv_train = "/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/Train.csv"
     path_csv_test = "/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/data_wsj.csv" #/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/Test.csv"
-    
+    #train_torch_dataset = utils.Dataset(path_csv_train)
+    #mel = train_torch_dataset[0]["mel_spec_db"]
+    #plt.imsave(f"/home/dsi/moradim/Spectrogram_example.png", numpy.array(mel), origin='lower')
     if not args.load and not args.fit_classifier:
         classifier = fit_hyperparameters(
             args.hyper, path_csv_train, args.cuda, args.gpu, args.save_path

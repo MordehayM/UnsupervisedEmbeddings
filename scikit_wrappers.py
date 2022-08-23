@@ -99,7 +99,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
         self.optimizer = torch.optim.Adam(self.encoder.parameters(), lr=lr)
         
         ##logger
-        name = "UNsupervised_Spk_Gender"
+        name = "Unsupervised_Spk_Gender"
         self.logger = logging.getLogger(name)
     # set log level
         self.logger.setLevel(logging.INFO)
