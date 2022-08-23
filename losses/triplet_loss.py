@@ -111,10 +111,16 @@ class TripletLoss(torch.nn.modules.loss._Loss):
         size_representation = representation.size(1)
         # Positive loss: -logsigmoid of dot product between anchor and positive
         # representations
-        loss = -torch.mean(torch.nn.functional.logsigmoid(torch.bmm(
+        """loss = -torch.mean(torch.nn.functional.logsigmoid(torch.bmm(
             representation.view(batch_size, 1, size_representation),
             positive_representation.view(batch_size, size_representation, 1)
-        )))
+        )))""" #old loss
+        
+        loss = -torch.mean(torch.bmm(
+            representation.view(batch_size, 1, size_representation),
+            positive_representation.view(batch_size, size_representation, 1)
+        ))
+        
         """print(torch.bmm(
             representation.view(batch_size, 1, size_representation),
             positive_representation.view(batch_size, size_representation, 1)
@@ -151,14 +157,24 @@ class TripletLoss(torch.nn.modules.loss._Loss):
                     beginning_samples_neg[i, j] + length_pos_neg
                 ] for j in range(batch_size)]).to(batch_spk_id.device)
             )
-            neg_loss += multiplicative_ratio * -torch.mean(
+            """neg_loss += multiplicative_ratio * -torch.mean(
                 torch.nn.functional.logsigmoid(-torch.bmm(
                     representation.view(batch_size, 1, size_representation),
                     negative_representation.view(
                         batch_size, size_representation, 1
                     )
                 ))
+            )""" #old loss
+            
+            neg_loss += multiplicative_ratio * torch.mean(
+                torch.bmm(
+                    representation.view(batch_size, 1, size_representation),
+                    negative_representation.view(
+                        batch_size, size_representation, 1
+                    )
+                )
             )
+            
             # If required, backward through the first computed term of the loss
             # and free from the graph everything related to the negative sample
             # Leaves the last backward pass to the training procedure

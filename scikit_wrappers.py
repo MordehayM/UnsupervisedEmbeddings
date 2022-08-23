@@ -17,6 +17,7 @@
 
 
 import math
+from operator import index
 import numpy
 import torch
 import sklearn
@@ -287,7 +288,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
             for batch_idx, batch in enumerate(train_generator):
                 if self.cuda:
                     batch["spk_id"], batch["mel_spec_db"], batch["neg_samples_index"] = batch["spk_id"].cuda(self.gpu), batch["mel_spec_db"].cuda(self.gpu), batch["neg_samples_index"].cuda(self.gpu)
-                    #print(batch.device)
+                    #print(batch["spk_id"].device)
                 self.optimizer.zero_grad()
                 if not varying:
                     loss = self.loss(
@@ -393,7 +394,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
             if not varying:
                 for batch in test_generator:
                     if self.cuda:
-                        batch["spk_id"], batch["mel_spec_db"] = batch["spk_id"].cuda(self.gpu), batch["mel_spec_db"].cuda(self.gpu)
+                        batch["mel_spec_db"] = batch["mel_spec_db"].cuda(self.gpu)
                     features[
                         count * batch_size: (count + 1) * batch_size
                     ] = self.encoder(batch["mel_spec_db"]).cpu()
@@ -401,7 +402,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
             else:
                 for batch in test_generator:
                     if self.cuda:
-                        batch["spk_id"], batch["mel_spec_db"] = batch["spk_id"].cuda(self.gpu), batch["mel_spec_db"].cuda(self.gpu)
+                        batch["mel_spec_db"] = batch["mel_spec_db"].cuda(self.gpu)
                     length = batch.size(2) - torch.sum(
                         torch.isnan(batch[0, 0])
                     ).data.cpu().numpy()
@@ -478,12 +479,28 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
         """
         features = self.encode(X, batch_size=batch_size)
         est_y = self.classifier.predict(features)
+        indexes = torch.nonzero(torch.tensor(est_y != y))
+        print(indexes.shape)
+        #print(est_y[284])
+        #print(y[284])
         
         NMI  = sklearn.metrics.normalized_mutual_info_score(y, est_y)
-        self.logger.info(f"The NMI is: {NMI}. 0 = no mutual information and 1 = perfect correlation")
+        self.logger.info(f"The Normalized Mutual Info is: {NMI:.2f}. 0 = No mutual information and 1 = perfect correlation")
         
-        ari = sklearn.metrics.adjusted_rand_score(y, est_y)
-        self.logger.info(f"The Adjusted Rand Index score is: {ari}. 0 for random labeling independently of the number of clusters and samples and exactly 1.0 when the clusterings are identical (up to a permutation")
+        AMI  = sklearn.metrics.adjusted_mutual_info_score(y, est_y)
+        self.logger.info(f"The Adjusted Mutual Info is: {AMI:.2f}. Values close to zero indicate two label assignments that are largely independent, while values close to one indicate significant agreement. ")
+        
+        completeness  = sklearn.metrics.completeness_score(y, est_y)
+        self.logger.info(f"The completeness is: {completeness:.2f}. Completeness: all members of a given class are assigned to the same cluster - higher is better")
+        
+        homogeneity  = sklearn.metrics.homogeneity_score(y, est_y)
+        self.logger.info(f"The Homogeneity is: {homogeneity:.2f}. Homogeneity: each cluster contains only members of a single class - higher is better")
+        
+        v_measure  = sklearn.metrics.v_measure_score(y, est_y)
+        self.logger.info(f"The V_measure is: {v_measure:.2f}. Higher is better")
+        
+        ARI = sklearn.metrics.homogeneity_score(y, est_y)
+        self.logger.info(f"The Adjusted Rand Index score is: {ARI:.2f}. 0 for random labeling independently of the number of clusters and samples and exactly 1.0 when the clusterings are identical (up to a permutation")
         
         #print(numpy.unique(est_y))
         features_female = features[y==0, :]
@@ -493,6 +510,11 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
         csmm = numpy.mean(sklearn.metrics.pairwise.cosine_similarity(features_male, features_male), axis=1)
         csff = numpy.mean(sklearn.metrics.pairwise.cosine_similarity(features_female, features_female), axis=1)
         csfm = numpy.mean(sklearn.metrics.pairwise.cosine_similarity(features_female, features_male), axis=1)
+        
+        within_class_similarity = (numpy.mean(csmm) + numpy.mean(csff))/2
+        not_within_class_similarity = numpy.mean(csfm)
+        self.logger.info(f"The within_class_similarity is: {within_class_similarity:.2f}. Higher is better")
+        self.logger.info(f"The not_within_class_similarity is: {not_within_class_similarity:.2f}. Lower is better")
         
         ###hist of the similarity
         fig, axs = plt.subplots(3)
@@ -504,16 +526,39 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
         axs[2].hist(csfm, bins="sqrt", density=True)
         axs[2].set_title('male-female pairs')
         fig.tight_layout()
-        plt.savefig(self.save_path + "cosine similarity.png")
+        plt.savefig(self.save_path + "cosine_similarity_wsj.png")
         
         ##דscatter of the vectors labeled by the gender
         fig, ax = plt.subplots()
         classes = ['female', 'male']
         colors = ListedColormap(['tab:pink','b'])
         sc = ax.scatter(features[:, 0], features[:, 1], c=y, cmap=colors)
+        ax.set_title("Visualization of the representation with the true labels")
         plt.legend(handles=sc.legend_elements()[0], labels=classes)
         ax.grid(True)
-        plt.savefig(self.save_path + "scatter_visualization.png")
+        plt.savefig(self.save_path + "scatter_visualization_true_wsj.png")
+        
+        fig, ax = plt.subplots()
+        classes = ['female', 'male']
+        colors = ListedColormap(['tab:pink','b'])
+        sc = ax.scatter(features[:, 0], features[:, 1], c=est_y, cmap=colors)
+        ax.set_title("Visualization of the representation with the predicted labels")
+        plt.legend(handles=sc.legend_elements()[0], labels=classes)
+        ax.grid(True)
+        plt.savefig(self.save_path + "scatter_visualization_est_wsj.png")
+        
+        ##add text of wrong assigmment
+        fig, ax = plt.subplots()
+        classes = ['female', 'male']
+        colors = ListedColormap(['tab:pink','b'])
+        sc = ax.scatter(features[:, 0], features[:, 1], c=y, cmap=colors)
+        ax.set_title("Visualization of the representation with the true labels with text")
+        for i, ind in enumerate(indexes):
+            ax.annotate(int(ind), (features[ind, 0], features[ind, 1]), fontsize='xx-small')
+        plt.legend(handles=sc.legend_elements()[0], labels=classes)
+        ax.grid(True)
+        plt.savefig(self.save_path + "scatter_visualization_est_text_wsj.png")
+        
         
         return self.classifier.score(features, y)
 

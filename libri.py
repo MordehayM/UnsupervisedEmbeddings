@@ -105,7 +105,8 @@ if __name__ == '__main__':
         args.cuda = False
 
     path_csv_train = "/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/Train.csv"
-    path_csv_test = "/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/Test.csv"
+    path_csv_test = "/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/data_wsj.csv" #/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/Test.csv"
+    
     if not args.load and not args.fit_classifier:
         classifier = fit_hyperparameters(
             args.hyper, path_csv_train, args.cuda, args.gpu, args.save_path
