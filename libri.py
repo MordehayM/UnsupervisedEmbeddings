@@ -38,7 +38,6 @@ def fit_hyperparameters(file, path_csv_train, cuda, gpu, save_path,
     """
     Creates a classifier from the given set of hyperparameters in the input
     file, fits it and return it.
-
     @param file Path of a file containing a set of hyperparemeters.
     @param train Training set.
     @param train_labels Labels for the training set.
@@ -75,7 +74,7 @@ def parse_arguments():
     )
 
 
-    parser.add_argument('--save_path', type=str, metavar='PATH', default="/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/another_run_20/",
+    parser.add_argument('--save_path', type=str, metavar='PATH', default="/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/another_run_20_check/",
                         help='path where the estimator is/should be saved')
     parser.add_argument('--cuda', type=bool, default=1,
                         help='activate to use CUDA')
@@ -106,7 +105,7 @@ if __name__ == '__main__':
         args.cuda = False
 
     path_csv_train = "/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/Train.csv"
-    path_csv_test = "/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/data_wsj.csv" #/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/Test.csv"
+    path_csv_test = "/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/Test.csv" #"/home/dsi/moradim/UnsupervisedScalableRepresentationLearningTimeSeries/data_wsj.csv"
     #train_torch_dataset = utils.Dataset(path_csv_train)
     #mel = train_torch_dataset[0]["mel_spec_db"]
     #plt.imsave(f"/home/dsi/moradim/Spectrogram_example.png", numpy.array(mel), origin='lower')

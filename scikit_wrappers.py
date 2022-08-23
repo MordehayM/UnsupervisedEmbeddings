@@ -526,7 +526,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
         axs[2].hist(csfm, bins="sqrt", density=True)
         axs[2].set_title('male-female pairs')
         fig.tight_layout()
-        plt.savefig(self.save_path + "cosine_similarity_wsj.png")
+        plt.savefig(self.save_path + "cosine_similarity.png")
         
         ##דscatter of the vectors labeled by the gender
         fig, ax = plt.subplots()
@@ -536,7 +536,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
         ax.set_title("Visualization of the representation with the true labels")
         plt.legend(handles=sc.legend_elements()[0], labels=classes)
         ax.grid(True)
-        plt.savefig(self.save_path + "scatter_visualization_true_wsj.png")
+        plt.savefig(self.save_path + "scatter_visualization_true.png")
         
         fig, ax = plt.subplots()
         classes = ['female', 'male']
@@ -545,7 +545,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
         ax.set_title("Visualization of the representation with the predicted labels")
         plt.legend(handles=sc.legend_elements()[0], labels=classes)
         ax.grid(True)
-        plt.savefig(self.save_path + "scatter_visualization_est_wsj.png")
+        plt.savefig(self.save_path + "scatter_visualization_est.png")
         
         ##add text of wrong assigmment
         fig, ax = plt.subplots()
@@ -557,7 +557,7 @@ class TimeSeriesEncoderClassifier(sklearn.base.BaseEstimator,
             ax.annotate(int(ind), (features[ind, 0], features[ind, 1]), fontsize='xx-small')
         plt.legend(handles=sc.legend_elements()[0], labels=classes)
         ax.grid(True)
-        plt.savefig(self.save_path + "scatter_visualization_est_text_wsj.png")
+        plt.savefig(self.save_path + "scatter_visualization_est_text.png")
         
         
         return self.classifier.score(features, y)

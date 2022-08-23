@@ -35,7 +35,8 @@ class Dataset(torch.utils.data.Dataset):
         self.nb_random_sample = nb_random_sample
 
     def __len__(self):
-        return self.dataset_df.shape[0]
+        return 500
+        #return self.dataset_df.shape[0]
 
     def __getitem__(self, index):
         path = self.dataset_df.loc[index, "path_file"]
