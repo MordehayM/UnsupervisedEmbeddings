@@ -41,7 +41,7 @@ df_train["duration_sec"] = list(map(check_duration, list(s_path_libri_train)))
 df_test["duration_sec"] = list(map(check_duration, list(s_path_libri_test)))
 
 ##add gender information
-with open("Gender.txt", "r") as file_gender:
+with open("Gender_libri.txt", "r") as file_gender:
     list_gender_speaker = file_gender.read().splitlines()
     gender_speaker_dict = dict(list(map(lambda sp_ge: tuple([int(sp_ge.split(',')[0]), int(sp_ge.split(',')[1])]), list_gender_speaker)))
 
